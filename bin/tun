@@ -1,0 +1,6 @@
+#!/bin/bash
+
+A=$1
+shift
+
+autossh -M 0 -L $A -N $*

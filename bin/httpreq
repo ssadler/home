@@ -1,0 +1,59 @@
+#!/usr/bin/env python
+
+import sys, re, select, datetime
+from optparse import OptionParser
+
+default_user_agent = """Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.9.2.6pre) Gecko/20100614 Ubuntu/9.04 (jaunty) httpreq"""
+
+parser = OptionParser(usage = "%prog [options] url", version="0.1",
+                      description="Http request header generator")
+parser.add_option('-m', '--method', dest='method', default='GET', help="method to use")
+parser.add_option('-i', '--ifmod', dest='ifmod', default=None, help="seconds since modified",
+                  type='int')
+parser.add_option('-v', '--verbose', dest='verbose', action="count", help="print request to stderr")
+parser.add_option('-u', '--user-agent', dest="user_agent", default=default_user_agent)
+parser.add_option('-a', '--header', action='append', dest='headers')
+options, args = parser.parse_args()
+
+if len(args) != 1:
+    parser.error('missing url')
+
+def parse_uri(uri):
+    """Splits a URI into it's components."""
+    re_uri = re.compile('([a-z]+://)?(?:(.*?):(.*?)@)?([^:/]+)(?::(\d+))?(.*)$')
+    match = re_uri.match(uri)
+    assert match, "Invalid URI: %s" % uri
+    fields = ('scheme', 'user', 'pass', 'host', 'port', 'path')
+    return dict(zip(fields, match.groups()))
+
+parsed = parse_uri(args[0].strip())
+assert parsed['scheme'] in (None, 'http://'), "invalid scheme: " + parsed['scheme']
+
+headers = ['%s %s %s' % (options.method, parsed['path'] or '/', 'HTTP/1.1')]
+
+host = parsed['host']
+if parsed['port'] not in (None, '80'):
+    host += ':' + parsed['port']
+headers.append('Host: ' + host)
+
+if options.ifmod != None:
+    cachedate = datetime.datetime.now() - datetime.timedelta(seconds=options.ifmod)
+    cachedate = cachedate.strftime('%a, %d %b %Y %H:%M:%S')
+    headers.append('If-Modified-Since: ' + cachedate)
+
+headers.append("User-Agent: " + options.user_agent)
+headers.append("Connection: Close")
+if options.headers:
+    headers += options.headers
+
+post_data = ''
+if options.method == 'POST':
+    post_data = sys.stdin.read()
+    headers.append('Content-Length: %s' % len(post_data))
+
+out = "\r\n".join(headers) + "\r\n\r\n" + post_data
+
+if options.verbose:
+    print >>sys.stderr, "\033[42m%s\033[1;m" % out
+
+sys.stdout.write(out)
