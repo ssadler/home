@@ -1,50 +1,65 @@
 #!/usr/bin/env python
 
-import sys, os, re, getopt
-from functools import partial
+import sys
 
-# parse options for module imports
-opts, args = getopt.getopt(sys.argv[1:], 'm:')
-opts = dict(opts)
-if '-m' in opts:
-    for imp in opts['-m'].split(','):
-        locals()[imp] = __import__(imp.strip())
 
-code_part = partial(compile, sys.argv[1], __file__);
-try:
-    mode = 'eval'
-    code = code_part(mode)
-except SyntaxError:
-    mode = 'exec'
-    code = code_part(mode)
+def _make():
+    def wrap_compile(raw):
+        if raw and raw != 'None' and raw != '-':
+            try:
+                mode = 'eval'
+                bc = compile(raw, __file__, mode)
+            except SyntaxError:
+                mode = 'exec'
+                bc = compile(raw, __file__, mode)
+            return bc, mode
+        return None, None
 
-shortcuts = {
-    'run': lambda line, cmd: os.system(cmd.replace('%s', line)),
-    's': lambda line, char, index=0: line.split(char, index+1)[index],
-}
+    codes = map(wrap_compile, sys.argv[1:])
+    if len(codes) == 1:
+        return (None, None), codes[0], (None, None)
+    if len(codes) == 2:
+        return codes[0], codes[1], (None, None)
+    return codes
 
-re_compiled = {}
-def match(pattern, data):
-    r = re_compiled.get(pattern)
-    if not r:
-        r = re_compiled[pattern] = re.compile(pattern)
-    m = r.match(data)
-    if m:
-        return m.groups()
-    return None
 
-i = 1
-try:
-    for line in sys.stdin:
-        l = line = line[:-1]
-        words = line.split()
-        for shortcut_name, func in shortcuts.items(): locals()[shortcut_name] = partial(func, line)
-        try:
-            out = eval(code, globals(), locals())
-            if mode == 'eval' and out:
-                print out
-            i += 1
-        except IndexError:
-            pass
-except KeyboardInterrupt:
-    sys.exit(1)
+def _run():
+    (bcinit, bcinitm), (bcline, bclinem), (bcfin, bcfinm) = _make()
+
+    import re, ujson, os
+    i = 1
+    ll = last = object()
+    jl = ujson.loads
+    jd = ujson.dumps
+
+    lines = iter(sys.stdin)
+
+    if bcinit:
+        out = eval(bcinit, locals())
+        if bcinitm == 'eval' and out:
+            print out
+
+    try:
+        for line in lines:
+            l = line = line[:-1]
+            words = line.split()
+
+            try:
+                out = eval(bcline, locals())
+                if bclinem == 'eval' and out:
+                    print out
+                i += 1
+            except IndexError:
+                pass
+            ll = l
+    except KeyboardInterrupt:
+        sys.exit(1)
+
+
+    if bcfin:
+        out = eval(bcfin, locals())
+        if bcfinm == 'eval' and out:
+            print out
+
+
+_run()
